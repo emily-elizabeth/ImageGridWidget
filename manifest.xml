@@ -1,0 +1,54 @@
+<package version="0.0">
+  <name>com.hyperxtalk.widget.imagegrid</name>
+  <license>community</license>
+  <type>widget</type>
+  <requires name="com.livecode.canvas"/>
+  <requires name="com.livecode.array"/>
+  <requires name="com.livecode.list"/>
+  <requires name="com.livecode.widget"/>
+  <requires name="com.livecode.arithmetic"/>
+  <requires name="com.livecode.binary"/>
+  <requires name="com.livecode.logic"/>
+  <requires name="com.livecode.string"/>
+  <requires name="com.livecode.type"/>
+  <requires name="com.livecode.mathfoundation"/>
+  <requires name="com.livecode.engine"/>
+  <requires name="com.livecode.typeconvert"/>
+  <requires name="com.livecode.char"/>
+  <property name="addImage" get="data" set="data"/>
+  <property name="addImages" get="string" set="string"/>
+  <property name="removeImage" get="integer" set="integer"/>
+  <property name="clearImages" get="boolean" set="boolean"/>
+  <property name="cellSize" get="integer" set="integer"/>
+  <property name="padding" get="integer" set="integer"/>
+  <property name="selectedIndex" get="integer" set="integer"/>
+  <property name="imageCount" get="integer"/>
+  <property name="selectedImageData" get="data"/>
+  <handler name="OnCreate" parameters="" return="any"/>
+  <handler name="OnSave" parameters="out array" return="any"/>
+  <handler name="OnLoad" parameters="in array" return="any"/>
+  <handler name="OnPaint" parameters="" return="any"/>
+  <handler name="OnMouseEnter" parameters="" return="nothing"/>
+  <handler name="OnClick" parameters="" return="nothing"/>
+  <handler name="OnMouseScroll" parameters="in real,in real" return="any"/>
+  <handler name="OnMouseDown" parameters="" return="nothing"/>
+  <handler name="OnMouseMove" parameters="" return="nothing"/>
+  <handler name="OnMouseUp" parameters="" return="nothing"/>
+  <handler name="OnDragEnter" parameters="" return="boolean"/>
+  <handler name="OnDragLeave" parameters="" return="any"/>
+  <handler name="OnDragDrop" parameters="" return="any"/>
+  <handler name="OnGeometryChanged" parameters="" return="any"/>
+  <handler name="OnTest" parameters="" return="any"/>
+  <handler name="setAddImage" parameters="in data" return="any"/>
+  <handler name="setAddImages" parameters="in string" return="any"/>
+  <handler name="setRemoveImage" parameters="in integer" return="any"/>
+  <handler name="setClearImages" parameters="in boolean" return="any"/>
+  <handler name="getImageCount" parameters="" return="integer"/>
+  <handler name="getSelectedImageData" parameters="" return="data"/>
+  <handler name="getCellSize" parameters="" return="integer"/>
+  <handler name="setCellSize" parameters="in integer" return="any"/>
+  <handler name="getPadding" parameters="" return="integer"/>
+  <handler name="setPadding" parameters="in integer" return="any"/>
+  <handler name="getSelectedIndex" parameters="" return="integer"/>
+  <handler name="setSelectedIndex" parameters="in integer" return="any"/>
+</package>

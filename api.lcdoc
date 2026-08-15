@@ -1,0 +1,44 @@
+Library: com.hyperxtalk.widget.imagegrid
+
+Type: widget
+
+Summary:
+A widget that displays images in a responsive scrolling grid.
+
+Images can be added as raw binary data (for encrypted/database-backed
+apps) or as file paths.  The grid reflows automatically when resized.
+
+Name: imageGridSelected
+
+Type: message
+
+Syntax: imageGridSelected <pIndex>
+
+Summary: Sent when the user clicks an image cell.
+
+Name: imageGridDoubleClicked
+
+Type: message
+
+Syntax: imageGridDoubleClicked <pIndex>
+
+Summary: Sent when the user double-clicks an image cell.
+
+Name: imageGridDeleteRequested
+
+Type: message
+
+Syntax: imageGridDeleteRequested <pIndex>
+
+Summary: Sent when the user presses Delete/Backspace on a selected cell.
+
+Name: imageGridDrop
+
+Type: message
+
+Syntax: imageGridDrop
+
+Summary:
+Sent when files are dropped onto the widget.
+The stack should read the dragData["files"] and call addImage/addImages.
+

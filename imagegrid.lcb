@@ -1,0 +1,708 @@
+/*
+Copyright (C) 2026 Emily-Elizabeth Howard
+
+ImageGrid Widget for HyperXTalk
+A responsive image grid widget that displays images in a scrollable,
+reflowing grid. Supports binary image data (for database-backed apps
+like Secured Photos) and file-path-based loading with drag-and-drop.
+*/
+
+/**
+A widget that displays images in a responsive scrolling grid.
+
+Images can be added as raw binary data (for encrypted/database-backed
+apps) or as file paths.  The grid reflows automatically when resized.
+
+Name: imageGridSelected
+Type: message
+Syntax: imageGridSelected <pIndex>
+Summary: Sent when the user clicks an image cell.
+
+Name: imageGridDoubleClicked
+Type: message
+Syntax: imageGridDoubleClicked <pIndex>
+Summary: Sent when the user double-clicks an image cell.
+
+Name: imageGridDeleteRequested
+Type: message
+Syntax: imageGridDeleteRequested <pIndex>
+Summary: Sent when the user presses Delete/Backspace on a selected cell.
+
+Name: imageGridDrop
+Type: message
+Syntax: imageGridDrop
+Summary: Sent when files are dropped onto the widget.
+The stack should read the dragData["files"] and call addImage/addImages.
+*/
+
+widget com.hyperxtalk.widget.imagegrid
+
+use com.livecode.widget
+use com.livecode.canvas
+use com.livecode.math
+use com.livecode.list
+use com.livecode.string
+use com.livecode.engine
+
+-- ── Properties ───────────────────────────────────────────────────────────────
+-- Action triggers (dummy getters — only the setter is meaningful)
+property addImage      get mDummyData     set setAddImage
+property addImages     get mDummyString   set setAddImages
+property removeImage   get mDummyInteger  set setRemoveImage
+property clearImages   get mDummyBoolean  set setClearImages
+
+-- Read/write
+property cellSize      get mCellSize      set setCellSize
+property padding       get mPadding       set setPadding
+property selectedIndex get mSelectedIndex set setSelectedIndex
+
+-- Read-only
+property imageCount         get getImageCount
+property selectedImageData  get getSelectedImageData
+
+-- ── Private state ────────────────────────────────────────────────────────────
+
+-- Raw image data for each cell (binary Data).
+private variable mImageData     as List   -- List of Data
+
+-- Decoded Image objects (nil until painted for the first time).
+private variable mImageCache    as List   -- List of optional Image
+
+-- Selection
+private variable mSelectedIndex as Integer  -- 1-based; 0 = none
+
+-- Layout
+private variable mCellSize      as Integer  -- cell width/height in points
+private variable mPadding       as Integer  -- gap between cells in points
+private variable mScrollOffset  as Real     -- vertical scroll in points
+
+-- Colours
+private variable mBackColor         as Color
+private variable mSelectionColor    as Color
+private variable mPlaceholderColor  as Color
+
+-- Drag state
+private variable mDragOver      as Boolean
+
+-- Scrollbar drag state
+private variable mScrollbarDragging        as Boolean
+private variable mScrollbarDragStartY      as Real
+private variable mScrollbarDragStartOffset as Real
+
+
+
+
+-- Dummy backing variables for write-only action properties
+private variable mDummyData     as Data
+private variable mDummyString   as String
+private variable mDummyInteger  as Integer
+private variable mDummyBoolean  as Boolean
+
+-- ── Constants ────────────────────────────────────────────────────────────────
+
+constant kDefaultCellSize   is 120
+constant kDefaultPadding    is 8
+constant kMinCellSize       is 48
+constant kScrollbarWidth    is 10
+constant kScrollbarMinThumb is 24
+
+-- ── Lifecycle ────────────────────────────────────────────────────────────────
+
+public handler OnCreate()
+   put [] into mImageData
+   put [] into mImageCache
+   put 0  into mSelectedIndex
+   put kDefaultCellSize into mCellSize
+   put kDefaultPadding  into mPadding
+   put 0.0 into mScrollOffset
+   put color [0.13, 0.13, 0.13] into mBackColor
+   put color [0.2, 0.6, 1.0, 0.7] into mSelectionColor
+   put color [0.25, 0.25, 0.25] into mPlaceholderColor
+   put false into mDragOver
+   put false into mScrollbarDragging
+   put 0 into mScrollbarDragStartY
+   put 0 into mScrollbarDragStartOffset
+end handler
+
+public handler OnSave(out rProperties as Array)
+   put the empty array into rProperties
+   put mCellSize into rProperties["cellSize"]
+   put mPadding  into rProperties["padding"]
+   put colorToString(mBackColor, false)      into rProperties["backColor"]
+   put colorToString(mSelectionColor, false) into rProperties["selectionColor"]
+   -- Image data is not persisted in the widget; the owning stack manages it.
+end handler
+
+public handler OnLoad(in pProperties as Array)
+   if "cellSize" is among the keys of pProperties then
+      put pProperties["cellSize"] into mCellSize
+   end if
+   if "padding" is among the keys of pProperties then
+      put pProperties["padding"] into mPadding
+   end if
+   if "backColor" is among the keys of pProperties then
+      put stringToColor(pProperties["backColor"]) into mBackColor
+   end if
+   if "selectionColor" is among the keys of pProperties then
+      put stringToColor(pProperties["selectionColor"]) into mSelectionColor
+   end if
+end handler
+
+-- ── Paint ────────────────────────────────────────────────────────────────────
+
+public handler OnPaint()
+   -- Background
+   set the paint of this canvas to solid paint with mBackColor
+   fill rectangle path of my bounds on this canvas
+
+   variable tCols as Integer
+   variable tCellW as Integer
+   put columnCount() into tCols
+   put effectiveCellSize() into tCellW
+
+   variable tCount as Integer
+   put the number of elements in mImageData into tCount
+   if tCount is 0 then
+      -- Empty state hint
+      set the font of this canvas to font "system" at size 14
+      set the paint of this canvas to solid paint with color [0.5, 0.5, 0.5]
+      fill text "No images" at center of my bounds on this canvas
+      return
+   end if
+
+   variable tRow as Integer
+   variable tCol as Integer
+   variable tIndex as Integer
+   put 1 into tIndex
+
+   repeat while tIndex <= tCount
+      put the floor of ((tIndex - 1) / tCols) into tRow
+      put ((tIndex - 1) mod tCols) into tCol
+
+      variable tX as Real
+      variable tY as Real
+      put mPadding + tCol * (tCellW + mPadding) into tX
+      put mPadding + tRow * (tCellW + mPadding) - mScrollOffset into tY
+
+      -- Viewport culling: skip cells entirely above or below the widget.
+      if tY + tCellW < 0 or tY > my height then
+         add 1 to tIndex
+         next repeat
+      end if
+
+      variable tCellRect as Rectangle
+      put rectangle [tX, tY, tX + tCellW, tY + tCellW] into tCellRect
+
+      -- Placeholder background
+      set the paint of this canvas to solid paint with mPlaceholderColor
+      fill rounded rectangle path of tCellRect with radius 4 on this canvas
+
+      -- Draw image if we have a decoded copy
+      variable tImg as optional Image
+      put element tIndex of mImageCache into tImg
+      if tImg is not nothing then
+         drawImageInRect(tImg, tCellRect)
+      else
+         -- Decode on first paint and redraw
+         decodeImageAt(tIndex)
+      end if
+
+      -- Selection overlay
+      if tIndex is mSelectedIndex then
+         set the paint of this canvas to solid paint with mSelectionColor
+         fill rounded rectangle path of tCellRect with radius 4 on this canvas
+         set the stroke width of this canvas to 3
+         set the paint of this canvas to solid paint with color [0.2, 0.6, 1.0]
+         stroke rounded rectangle path of tCellRect with radius 4 on this canvas
+      end if
+
+      add 1 to tIndex
+   end repeat
+
+   -- Drag-over highlight
+   if mDragOver then
+      set the paint of this canvas to solid paint with color [0.2, 0.6, 1.0, 0.15]
+      fill rectangle path of my bounds on this canvas
+      set the stroke width of this canvas to 3
+      set the paint of this canvas to solid paint with color [0.2, 0.6, 1.0]
+      stroke rectangle path of my bounds on this canvas
+   end if
+
+   drawScrollbar()
+end handler
+
+private handler drawScrollbar()
+   variable tMaxScroll as Real
+   put maxScrollOffset() into tMaxScroll
+
+   -- Track
+   variable tTrackX as Real
+   put my width - kScrollbarWidth into tTrackX
+   set the paint of this canvas to solid paint with color [0.18, 0.18, 0.18]
+   fill rectangle path of rectangle [tTrackX, 0, my width, my height] on this canvas
+
+   if tMaxScroll <= 0 then
+      return
+   end if
+
+   -- Thumb
+   variable tThumbH as Real
+   put (my height / contentHeight()) * my height into tThumbH
+   if tThumbH < kScrollbarMinThumb then
+      put kScrollbarMinThumb into tThumbH
+   end if
+
+   variable tThumbY as Real
+   put (mScrollOffset / tMaxScroll) * (my height - tThumbH) into tThumbY
+
+   set the paint of this canvas to solid paint with color [0.55, 0.55, 0.55]
+   fill rounded rectangle path of rectangle [tTrackX + 2, tThumbY + 2, my width - 2, tThumbY + tThumbH - 2] with radius 4 on this canvas
+end handler
+
+-- Draw pImage scaled to fill pRect, preserving aspect ratio (crop to centre).
+private handler drawImageInRect(in pImage as Image, in pRect as Rectangle)
+   variable tImgW as Real
+   variable tImgH as Real
+   put the width  of pImage into tImgW
+   put the height of pImage into tImgH
+   if tImgW <= 0 or tImgH <= 0 then
+      return
+   end if
+
+   variable tRectW as Real
+   variable tRectH as Real
+   put the width  of pRect into tRectW
+   put the height of pRect into tRectH
+
+   variable tScale as Real
+   if tImgW / tImgH > tRectW / tRectH then
+      -- Image is wider: fit height, crop sides
+      put tRectH / tImgH into tScale
+   else
+      -- Image is taller: fit width, crop top/bottom
+      put tRectW / tImgW into tScale
+   end if
+
+   variable tDrawW as Real
+   variable tDrawH as Real
+   put tImgW * tScale into tDrawW
+   put tImgH * tScale into tDrawH
+
+   variable tOffX as Real
+   variable tOffY as Real
+   put the left  of pRect + (tRectW - tDrawW) / 2 into tOffX
+   put the top   of pRect + (tRectH - tDrawH) / 2 into tOffY
+
+   save state of this canvas
+   clip to rectangle path of pRect on this canvas
+   draw pImage into rectangle [tOffX, tOffY, tOffX + tDrawW, tOffY + tDrawH] of this canvas
+   restore state of this canvas
+end handler
+
+-- ── Input ────────────────────────────────────────────────────────────────────
+
+public handler OnMouseEnter() returns nothing
+   set property "traversalOn" of my script object to "true"
+   execute script "focus on me" in my script object
+end handler
+
+public handler OnClick() returns nothing
+   variable tIndex as Integer
+   put indexAtPoint(the mouse position) into tIndex
+   if tIndex < 1 then
+      put 0 into mSelectedIndex
+      redraw all
+      return
+   end if
+   put tIndex into mSelectedIndex
+   redraw all
+   if the click count > 1 then
+      post "imageGridDoubleClicked" with [tIndex]
+   else
+      post "imageGridSelected" with [tIndex]
+   end if
+end handler
+
+
+public handler OnMouseScroll(in pDeltaX as Real, in pDeltaY as Real)
+   clampScroll(mScrollOffset + pDeltaY * 5)
+   redraw all
+end handler
+
+public handler OnMouseDown() returns nothing
+   variable tX as Real
+   put the x of the mouse position into tX
+   if tX < my width - kScrollbarWidth then
+      return
+   end if
+   variable tMaxScroll as Real
+   put maxScrollOffset() into tMaxScroll
+   if tMaxScroll <= 0 then
+      return
+   end if
+
+   -- Calculate thumb bounds
+   variable tThumbH as Real
+   put (my height / contentHeight()) * my height into tThumbH
+   if tThumbH < kScrollbarMinThumb then
+      put kScrollbarMinThumb into tThumbH
+   end if
+   variable tThumbY as Real
+   put (mScrollOffset / tMaxScroll) * (my height - tThumbH) into tThumbY
+
+   variable tClickY as Real
+   put the y of the mouse position into tClickY
+
+   if tClickY < tThumbY then
+      -- Click above thumb: scroll up a page
+      clampScroll(mScrollOffset - my height)
+      redraw all
+   else if tClickY > tThumbY + tThumbH then
+      -- Click below thumb: scroll down a page
+      clampScroll(mScrollOffset + my height)
+      redraw all
+   else
+      -- Click on thumb: start drag
+      put true into mScrollbarDragging
+      put tClickY into mScrollbarDragStartY
+      put mScrollOffset into mScrollbarDragStartOffset
+   end if
+end handler
+
+public handler OnMouseMove() returns nothing
+   if not mScrollbarDragging then
+      return
+   end if
+   variable tThumbH as Real
+   put (my height / contentHeight()) * my height into tThumbH
+   if tThumbH < kScrollbarMinThumb then
+      put kScrollbarMinThumb into tThumbH
+   end if
+   variable tScrollRange as Real
+   put my height - tThumbH into tScrollRange
+   variable tDelta as Real
+   put the y of the mouse position - mScrollbarDragStartY into tDelta
+   if tScrollRange > 0 then
+      clampScroll(mScrollbarDragStartOffset + (tDelta / tScrollRange) * maxScrollOffset())
+   end if
+   redraw all
+end handler
+
+public handler OnMouseUp() returns nothing
+   put false into mScrollbarDragging
+end handler
+
+-- ── Drag and drop ────────────────────────────────────────────────────────────
+
+public handler OnDragEnter() returns Boolean
+   put true into mDragOver
+   redraw all
+   return true
+end handler
+
+public handler OnDragLeave()
+   put false into mDragOver
+   redraw all
+end handler
+
+public handler OnDragDrop()
+   -- OnDragDrop is not yet called by the engine (commented out in widget-events.cpp).
+   -- Drag-and-drop is handled via a LiveCode Script dragDrop handler on the widget.
+   put false into mDragOver
+   redraw all
+end handler
+
+-- ── Resize ───────────────────────────────────────────────────────────────────
+
+public handler OnGeometryChanged()
+   clampScroll(mScrollOffset)
+   redraw all
+end handler
+
+-- ── Public API ───────────────────────────────────────────────────────────────
+
+public handler OnTest()
+   post "testReceived"
+end handler
+
+-- Add a single image from raw binary data.
+-- Call via: set the addImage of widget "imageGrid" to tData
+public handler setAddImage(in pData as Data)
+   push pData onto back of mImageData
+   variable tImg as Image
+   put image from data pData into tImg
+   push tImg onto back of mImageCache
+   redraw all
+end handler
+
+-- Add images from a newline-delimited list of file paths.
+-- Call via: set the addImages of widget "imageGrid" to tPaths
+public handler setAddImages(in pPaths as String)
+   addImagesFromPaths(pPaths)
+   redraw all
+end handler
+
+-- Remove the image at pIndex (1-based).
+-- Call via: set the removeImage of widget "imageGrid" to tIndex
+public handler setRemoveImage(in pIndex as Integer)
+   if pIndex < 1 or pIndex > the number of elements in mImageData then
+      return
+   end if
+   delete element pIndex of mImageData
+   delete element pIndex of mImageCache
+   if mSelectedIndex is pIndex then
+      put 0 into mSelectedIndex
+   else if mSelectedIndex > pIndex then
+      subtract 1 from mSelectedIndex
+   end if
+   redraw all
+end handler
+
+-- Remove all images.
+-- Call via: set the clearImages of widget "imageGrid" to true
+public handler setClearImages(in pClear as Boolean)
+   if pClear then
+      put [] into mImageData
+      put [] into mImageCache
+      put 0  into mSelectedIndex
+      put 0.0 into mScrollOffset
+      redraw all
+   end if
+end handler
+
+-- ── Property handlers ────────────────────────────────────────────────────────
+
+public handler getImageCount() returns Integer
+   return the number of elements in mImageData
+end handler
+
+public handler getSelectedImageData() returns Data
+   if mSelectedIndex < 1 or mSelectedIndex > the number of elements in mImageData then
+      return the empty data
+   end if
+   return element mSelectedIndex of mImageData
+end handler
+
+public handler getCellSize() returns Integer
+   return mCellSize
+end handler
+
+public handler setCellSize(in pSize as Integer)
+   if pSize < kMinCellSize then
+      put kMinCellSize into mCellSize
+   else
+      put pSize into mCellSize
+   end if
+   put [] into mImageCache  -- invalidate cache (different display size)
+   redraw all
+end handler
+
+public handler getPadding() returns Integer
+   return mPadding
+end handler
+
+public handler setPadding(in pPadding as Integer)
+   if pPadding < 0 then
+      put 0 into mPadding
+   else
+      put pPadding into mPadding
+   end if
+   redraw all
+end handler
+
+public handler getSelectedIndex() returns Integer
+   return mSelectedIndex
+end handler
+
+public handler setSelectedIndex(in pIndex as Integer)
+   if pIndex < 0 or pIndex > the number of elements in mImageData then
+      put 0 into mSelectedIndex
+   else
+      put pIndex into mSelectedIndex
+   end if
+   redraw all
+end handler
+
+-- ── Private helpers ──────────────────────────────────────────────────────────
+
+-- Usable width excluding the scrollbar strip.
+private handler usableWidth() returns Real
+   return my width - kScrollbarWidth
+end handler
+
+-- Clamp and store a new scroll offset.
+private handler clampScroll(in pOffset as Real)
+   variable tMax as Real
+   put maxScrollOffset() into tMax
+   if pOffset < 0 then
+      put 0 into mScrollOffset
+   else if pOffset > tMax then
+      put tMax into mScrollOffset
+   else
+      put pOffset into mScrollOffset
+   end if
+end handler
+
+-- Number of columns that fit in the usable width.
+private handler columnCount() returns Integer
+   variable tCols as Integer
+   put the floor of ((usableWidth() - mPadding) / (effectiveCellSize() + mPadding)) into tCols
+   if tCols < 1 then
+      put 1 into tCols
+   end if
+   return tCols
+end handler
+
+-- Cell size clamped to what actually fits.
+private handler effectiveCellSize() returns Integer
+   variable tSize as Integer
+   variable tAvail as Real
+   put mCellSize into tSize
+   put usableWidth() into tAvail
+   if tSize + mPadding * 2 > tAvail then
+      put tAvail - mPadding * 2 into tSize
+   end if
+   if tSize < kMinCellSize then
+      put kMinCellSize into tSize
+   end if
+   return tSize
+end handler
+
+-- Total content height of all rows.
+private handler contentHeight() returns Real
+   variable tCount as Integer
+   variable tCols  as Integer
+   variable tRows  as Integer
+   put the number of elements in mImageData into tCount
+   put columnCount() into tCols
+   if tCount is 0 or tCols is 0 then
+      return 0
+   end if
+   put the ceiling of (tCount / tCols) into tRows
+   return tRows * (effectiveCellSize() + mPadding) + mPadding
+end handler
+
+-- Maximum vertical scroll offset.
+private handler maxScrollOffset() returns Real
+   variable tMax as Real
+   put contentHeight() - my height into tMax
+   if tMax < 0 then
+      put 0 into tMax
+   end if
+   return tMax
+end handler
+
+-- Return the 1-based cell index at the given canvas point, or 0 if none.
+private handler indexAtPoint(in pPoint as Point) returns Integer
+   variable tCols  as Integer
+   variable tCellW as Integer
+   put columnCount()     into tCols
+   put effectiveCellSize() into tCellW
+
+   variable tX as Real
+   variable tY as Real
+   put the x of pPoint into tX
+   put the y of pPoint + mScrollOffset into tY
+
+   -- Ignore clicks in the scrollbar strip
+   if tX >= usableWidth() then
+      return 0
+   end if
+
+   variable tCol as Integer
+   variable tRow as Integer
+   put the floor of ((tX - mPadding) / (tCellW + mPadding)) into tCol
+   put the floor of ((tY - mPadding) / (tCellW + mPadding)) into tRow
+
+   if tCol < 0 or tCol >= tCols then
+      return 0
+   end if
+
+   -- Check the click landed inside the cell (not in the padding gap).
+   variable tCellX as Real
+   variable tCellY as Real
+   put mPadding + tCol * (tCellW + mPadding) into tCellX
+   put mPadding + tRow * (tCellW + mPadding) into tCellY
+   if tX < tCellX or tX > tCellX + tCellW then
+      return 0
+   end if
+   if (tY - mScrollOffset) < tCellY - mScrollOffset or (tY - mScrollOffset) > tCellY - mScrollOffset + tCellW then
+      return 0
+   end if
+
+   variable tIndex as Integer
+   put tRow * tCols + tCol + 1 into tIndex
+   if tIndex < 1 or tIndex > the number of elements in mImageData then
+      return 0
+   end if
+   return tIndex
+end handler
+
+-- Decode the image at pIndex from raw data and cache it, then redraw.
+private handler decodeImageAt(in pIndex as Integer)
+   variable tData as Data
+   put element pIndex of mImageData into tData
+   if tData is empty then
+      return
+   end if
+   variable tImg as Image
+   put image from data tData into tImg
+   put tImg into element pIndex of mImageCache
+   -- No redraw here — calling redraw all from inside OnPaint is suppressed.
+   -- Images added via setAddImage are now decoded eagerly before the redraw.
+end handler
+
+-- Load images from a newline-delimited path list using image from file.
+private handler addImagesFromPaths(in pPaths as String)
+   variable tPathList as List
+   split pPaths by newline into tPathList
+   variable tPath as String
+   repeat for each element tPath in tPathList
+      if tPath is empty then
+         next repeat
+      end if
+      variable tImg as Image
+      put image from file tPath into tImg
+      -- Store empty data as placeholder; image is cached directly.
+      push the empty data onto back of mImageData
+      push tImg onto back of mImageCache
+   end repeat
+end handler
+
+-- ── Colour helpers (matching other HyperXTalk widgets) ───────────────────────
+
+private handler colorToString(in pColor as Color, in pIncludeAlpha as Boolean) returns String
+   variable tR as Integer
+   variable tG as Integer
+   variable tB as Integer
+   variable tA as Integer
+   put the floor of (the red   of pColor * 255) into tR
+   put the floor of (the green of pColor * 255) into tG
+   put the floor of (the blue  of pColor * 255) into tB
+   put the floor of (the alpha of pColor * 255) into tA
+   if pIncludeAlpha then
+      return tR & "," & tG & "," & tB & "," & tA
+   else
+      return tR & "," & tG & "," & tB
+   end if
+end handler
+
+private handler stringToColor(in pString as String) returns Color
+   variable tParts as List
+   split pString by "," into tParts
+   variable tR as Real
+   variable tG as Real
+   variable tB as Real
+   variable tA as Real
+   put (element 1 of tParts) parsed as number / 255 into tR
+   put (element 2 of tParts) parsed as number / 255 into tG
+   put (element 3 of tParts) parsed as number / 255 into tB
+   if the number of elements in tParts >= 4 then
+      put (element 4 of tParts) parsed as number / 255 into tA
+   else
+      put 1.0 into tA
+   end if
+   return color [tR, tG, tB, tA]
+end handler
+
+end widget
