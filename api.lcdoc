@@ -8,6 +8,10 @@ A widget that displays images in a responsive scrolling grid.
 Images can be added as raw binary data (for encrypted/database-backed
 apps) or as file paths.  The grid reflows automatically when resized.
 
+version: 1.0.0
+
+author: Emily-Elizabeth Howard
+
 Name: imageGridSelected
 
 Type: message

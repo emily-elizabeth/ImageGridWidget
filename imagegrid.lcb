@@ -37,6 +37,11 @@ The stack should read the dragData["files"] and call addImage/addImages.
 
 widget com.hyperxtalk.widget.imagegrid
 
+metadata version is "1.0.0"
+metadata title is "Image Grid"
+metadata author is "Emily-Elizabeth Howard"
+metadata svgicon is "M -11,-11 h 9 v 9 h -9 z M 2,-11 h 9 v 9 h -9 z M -11,2 h 9 v 9 h -9 z M 2,2 h 9 v 9 h -9 z"
+
 use com.livecode.widget
 use com.livecode.canvas
 use com.livecode.math
@@ -429,9 +434,7 @@ end handler
 -- Call via: set the addImage of widget "imageGrid" to tData
 public handler setAddImage(in pData as Data)
    push pData onto back of mImageData
-   variable tImg as Image
-   put image from data pData into tImg
-   push tImg onto back of mImageCache
+   push nothing onto back of mImageCache
    redraw all
 end handler
 
@@ -638,7 +641,8 @@ private handler indexAtPoint(in pPoint as Point) returns Integer
    return tIndex
 end handler
 
--- Decode the image at pIndex from raw data and cache it, then redraw.
+-- Decode the image at pIndex from raw data and cache it.
+-- Schedules a timer to redraw after the current paint cycle completes.
 private handler decodeImageAt(in pIndex as Integer)
    variable tData as Data
    put element pIndex of mImageData into tData
@@ -648,8 +652,11 @@ private handler decodeImageAt(in pIndex as Integer)
    variable tImg as Image
    put image from data tData into tImg
    put tImg into element pIndex of mImageCache
-   -- No redraw here — calling redraw all from inside OnPaint is suppressed.
-   -- Images added via setAddImage are now decoded eagerly before the redraw.
+   schedule timer in 0.01 seconds
+end handler
+
+public handler OnTimer()
+   redraw all
 end handler
 
 -- Load images from a newline-delimited path list using image from file.

@@ -1,5 +1,8 @@
 <package version="0.0">
   <name>com.hyperxtalk.widget.imagegrid</name>
+  <title>Image Grid</title>
+  <author>Emily-Elizabeth Howard</author>
+  <version>1.0.0</version>
   <license>community</license>
   <type>widget</type>
   <requires name="com.livecode.canvas"/>
@@ -15,6 +18,7 @@
   <requires name="com.livecode.engine"/>
   <requires name="com.livecode.typeconvert"/>
   <requires name="com.livecode.char"/>
+  <metadata key="svgicon">M -11,-11 h 9 v 9 h -9 z M 2,-11 h 9 v 9 h -9 z M -11,2 h 9 v 9 h -9 z M 2,2 h 9 v 9 h -9 z</metadata>
   <property name="addImage" get="data" set="data"/>
   <property name="addImages" get="string" set="string"/>
   <property name="removeImage" get="integer" set="integer"/>
@@ -51,4 +55,5 @@
   <handler name="setPadding" parameters="in integer" return="any"/>
   <handler name="getSelectedIndex" parameters="" return="integer"/>
   <handler name="setSelectedIndex" parameters="in integer" return="any"/>
+  <handler name="OnTimer" parameters="" return="any"/>
 </package>

@@ -39,4 +39,5 @@ import module com.hyperxtalk.widget.imagegrid
   handler setPadding(in pIndex as Number) returns optional any
   handler getSelectedIndex() returns Number
   handler setSelectedIndex(in pIndex as Number) returns optional any
+  handler OnTimer() returns optional any
 end module
