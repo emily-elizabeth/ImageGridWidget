@@ -331,6 +331,7 @@ public handler OnClick() returns nothing
    if tIndex < 1 then
       put 0 into mSelectedIndex
       redraw all
+      post "imageGridSelected" with [0]
       return
    end if
    put tIndex into mSelectedIndex
