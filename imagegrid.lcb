@@ -113,7 +113,7 @@ constant kScrollbarMinThumb is 24
 
 -- ── Lifecycle ────────────────────────────────────────────────────────────────
 
-public handler OnCreate()
+private handler initDefaults()
    put [] into mImageData
    put [] into mImageCache
    put 0  into mSelectedIndex
@@ -127,29 +127,43 @@ public handler OnCreate()
    put false into mScrollbarDragging
    put 0 into mScrollbarDragStartY
    put 0 into mScrollbarDragStartOffset
+   put the empty data into mDummyData
+   put "" into mDummyString
+   put 0 into mDummyInteger
+   put false into mDummyBoolean
+end handler
+
+public handler OnCreate()
+   initDefaults()
 end handler
 
 public handler OnSave(out rProperties as Array)
    put the empty array into rProperties
    put mCellSize into rProperties["cellSize"]
    put mPadding  into rProperties["padding"]
-   put colorToString(mBackColor, false)      into rProperties["backColor"]
-   put colorToString(mSelectionColor, false) into rProperties["selectionColor"]
+   put the red   of mBackColor into rProperties["backR"]
+   put the green of mBackColor into rProperties["backG"]
+   put the blue  of mBackColor into rProperties["backB"]
+   put the red   of mSelectionColor into rProperties["selR"]
+   put the green of mSelectionColor into rProperties["selG"]
+   put the blue  of mSelectionColor into rProperties["selB"]
+   put the alpha of mSelectionColor into rProperties["selA"]
    -- Image data is not persisted in the widget; the owning stack manages it.
 end handler
 
 public handler OnLoad(in pProperties as Array)
+   initDefaults()
    if "cellSize" is among the keys of pProperties then
       put pProperties["cellSize"] into mCellSize
    end if
    if "padding" is among the keys of pProperties then
       put pProperties["padding"] into mPadding
    end if
-   if "backColor" is among the keys of pProperties then
-      put stringToColor(pProperties["backColor"]) into mBackColor
+   if "backR" is among the keys of pProperties then
+      put color [pProperties["backR"], pProperties["backG"], pProperties["backB"]] into mBackColor
    end if
-   if "selectionColor" is among the keys of pProperties then
-      put stringToColor(pProperties["selectionColor"]) into mSelectionColor
+   if "selR" is among the keys of pProperties then
+      put color [pProperties["selR"], pProperties["selG"], pProperties["selB"], pProperties["selA"]] into mSelectionColor
    end if
 end handler
 
@@ -426,10 +440,6 @@ end handler
 
 -- ── Public API ───────────────────────────────────────────────────────────────
 
-public handler OnTest()
-   post "testReceived"
-end handler
-
 -- Add a single image from raw binary data.
 -- Call via: set the addImage of widget "imageGrid" to tData
 public handler setAddImage(in pData as Data)
@@ -674,42 +684,6 @@ private handler addImagesFromPaths(in pPaths as String)
       push the empty data onto back of mImageData
       push tImg onto back of mImageCache
    end repeat
-end handler
-
--- ── Colour helpers (matching other HyperXTalk widgets) ───────────────────────
-
-private handler colorToString(in pColor as Color, in pIncludeAlpha as Boolean) returns String
-   variable tR as Integer
-   variable tG as Integer
-   variable tB as Integer
-   variable tA as Integer
-   put the floor of (the red   of pColor * 255) into tR
-   put the floor of (the green of pColor * 255) into tG
-   put the floor of (the blue  of pColor * 255) into tB
-   put the floor of (the alpha of pColor * 255) into tA
-   if pIncludeAlpha then
-      return tR & "," & tG & "," & tB & "," & tA
-   else
-      return tR & "," & tG & "," & tB
-   end if
-end handler
-
-private handler stringToColor(in pString as String) returns Color
-   variable tParts as List
-   split pString by "," into tParts
-   variable tR as Real
-   variable tG as Real
-   variable tB as Real
-   variable tA as Real
-   put (element 1 of tParts) parsed as number / 255 into tR
-   put (element 2 of tParts) parsed as number / 255 into tG
-   put (element 3 of tParts) parsed as number / 255 into tB
-   if the number of elements in tParts >= 4 then
-      put (element 4 of tParts) parsed as number / 255 into tA
-   else
-      put 1.0 into tA
-   end if
-   return color [tR, tG, tB, tA]
 end handler
 
 end widget
