@@ -8,36 +8,78 @@ like Secured Photos) and file-path-based loading with drag-and-drop.
 */
 
 /**
-A widget that displays images in a responsive scrolling grid.
+A widget that displays images in a responsive, scrollable grid.
 
 Images can be added as raw binary data (for encrypted/database-backed
-apps) or as file paths.  The grid reflows automatically when resized.
+apps) or as file paths. The grid reflows automatically when resized.
+A scrollbar appears when the content is taller than the widget.
+
+Drag-and-drop from Finder is supported via the widget's LiveCode Script.
+Add the following to the widget script to enable it:
+
+   on dragDrop
+      set the addImages of me to the dragData["files"]
+      pass dragDrop
+   end dragDrop
+
+   on DragEnter
+      set the dragAction to "copy"
+   end DragEnter
+
+Keyboard delete is also handled in the widget script:
+
+   on deleteKey
+      local tIndex
+      put the selectedIndex of me into tIndex
+      if tIndex > 0 then imageGridDeleteRequested tIndex
+   end deleteKey
+
+   on backspaceKey
+      deleteKey
+   end backspaceKey
+
+   on mouseUp
+      focus on me
+   end mouseUp
 
 Name: imageGridSelected
 Type: message
 Syntax: imageGridSelected <pIndex>
-Summary: Sent when the user clicks an image cell.
+Summary: Sent when the user clicks an image cell, or the background.
+Description:
+Sent after every click. pIndex is the 1-based index of the clicked image,
+or 0 if the user clicked the background (deselecting any selection).
 
 Name: imageGridDoubleClicked
 Type: message
 Syntax: imageGridDoubleClicked <pIndex>
 Summary: Sent when the user double-clicks an image cell.
+Description:
+pIndex is the 1-based index of the double-clicked image. Use
+the selectedImageData property to retrieve the full binary image data
+for display or processing.
 
 Name: imageGridDeleteRequested
 Type: message
 Syntax: imageGridDeleteRequested <pIndex>
-Summary: Sent when the user presses Delete/Backspace on a selected cell.
+Summary: Sent when the user presses Delete or Backspace on a selected cell.
+Description:
+pIndex is the 1-based index of the currently selected image. The widget
+does not remove the image automatically; the stack is responsible for
+calling set the removeImage of <widget> to pIndex.
 
 Name: imageGridDrop
 Type: message
 Syntax: imageGridDrop
 Summary: Sent when files are dropped onto the widget.
-The stack should read the dragData["files"] and call addImage/addImages.
+Description:
+Handle this message in the widget script (not the card script) and read
+dragData["files"] to obtain the newline-delimited list of dropped paths.
 */
 
 widget com.hyperxtalk.widget.imagegrid
 
-metadata version is "1.0.0"
+metadata version is "1.1.0"
 metadata title is "Image Grid"
 metadata author is "Emily-Elizabeth Howard"
 metadata svgicon is "M -11,-11 h 9 v 9 h -9 z M 2,-11 h 9 v 9 h -9 z M -11,2 h 9 v 9 h -9 z M 2,2 h 9 v 9 h -9 z"
@@ -50,19 +92,135 @@ use com.livecode.string
 use com.livecode.engine
 
 -- ── Properties ───────────────────────────────────────────────────────────────
--- Action triggers (dummy getters — only the setter is meaningful)
+
+/**
+Summary: Adds a single image from raw binary data.
+Syntax: set the addImage of <widget> to <pData>
+Value (data): The binary image data (JPEG, PNG, etc.).
+Description:
+Write-only. Appends the image to the end of the grid. Use this when
+loading images from a database or encrypted store.
+
+Example:
+   set the addImage of widget "imageGrid" to tImageData
+*/
 property addImage      get mDummyData     set setAddImage
+
+/**
+Summary: Adds images from a newline-delimited list of file paths.
+Syntax: set the addImages of <widget> to <pPaths>
+Value (string): A newline-delimited list of absolute file paths.
+Description:
+Write-only. Each path is loaded from disk and appended to the grid.
+Typically called from a dragDrop handler with dragData["files"].
+
+Example:
+   set the addImages of widget "imageGrid" to the dragData["files"]
+*/
 property addImages     get mDummyString   set setAddImages
+
+/**
+Summary: Removes the image at a given 1-based index.
+Syntax: set the removeImage of <widget> to <pIndex>
+Value (integer): The 1-based index of the image to remove.
+Description:
+Write-only. Removes the image and its cached thumbnail. The selection
+is cleared if the removed image was selected, or adjusted if it was
+above the selected image. Call this from an imageGridDeleteRequested handler.
+
+Example:
+   on imageGridDeleteRequested pIndex
+      set the removeImage of widget "imageGrid" to pIndex
+   end imageGridDeleteRequested
+*/
 property removeImage   get mDummyInteger  set setRemoveImage
+
+/**
+Summary: Removes all images from the grid.
+Syntax: set the clearImages of <widget> to true
+Value (boolean): Pass true to clear. Passing false has no effect.
+Description:
+Write-only. Clears all image data, the thumbnail cache, the selection,
+and resets the scroll position to the top.
+
+Example:
+   set the clearImages of widget "imageGrid" to true
+*/
 property clearImages   get mDummyBoolean  set setClearImages
 
--- Read/write
+/**
+Summary: The width and height of each image cell in points.
+Syntax:
+set the cellSize of <widget> to <pSize>
+get the cellSize of <widget>
+Value (integer): Cell size in points. Minimum value is 48. Default is 120.
+Description:
+Controls how large each thumbnail cell is. The grid reflows automatically
+when cellSize changes. Setting a value smaller than 48 clamps to 48.
+
+Example:
+   set the cellSize of widget "imageGrid" to 160
+*/
 property cellSize      get mCellSize      set setCellSize
+
+/**
+Summary: The gap between image cells in points.
+Syntax:
+set the padding of <widget> to <pPadding>
+get the padding of <widget>
+Value (integer): Gap in points. Minimum value is 0. Default is 8.
+Description:
+Controls the spacing between cells and between cells and the widget edge.
+
+Example:
+   set the padding of widget "imageGrid" to 12
+*/
 property padding       get mPadding       set setPadding
+
+/**
+Summary: The 1-based index of the currently selected image.
+Syntax:
+set the selectedIndex of <widget> to <pIndex>
+get the selectedIndex of <widget>
+Value (integer): 1-based index, or 0 if no image is selected.
+Description:
+Setting selectedIndex programmatically updates the visual selection
+and clamps to a valid range. Set to 0 to deselect.
+
+Example:
+   put the selectedIndex of widget "imageGrid" into tIndex
+*/
 property selectedIndex get mSelectedIndex set setSelectedIndex
 
--- Read-only
+/**
+Summary: The number of images currently in the grid.
+Syntax: get the imageCount of <widget>
+Value (integer): The total number of images.
+Description:
+Read-only. Returns the count of images added via addImage or addImages.
+
+Example:
+   if the imageCount of widget "imageGrid" is 0 then
+      answer "No images to export."
+   end if
+*/
 property imageCount         get getImageCount
+
+/**
+Summary: The full binary data of the currently selected image.
+Syntax: get the selectedImageData of <widget>
+Value (data): Binary image data, or empty if no image is selected.
+Description:
+Read-only. Returns the raw binary data that was originally passed to
+addImage for the selected cell. Use this in an imageGridDoubleClicked
+handler to display or process the full-resolution image.
+
+Example:
+   on imageGridDoubleClicked pIndex
+      put the selectedImageData of widget "imageGrid" into tData
+      -- pass tData to a viewer window
+   end imageGridDoubleClicked
+*/
 property selectedImageData  get getSelectedImageData
 
 -- ── Private state ────────────────────────────────────────────────────────────
